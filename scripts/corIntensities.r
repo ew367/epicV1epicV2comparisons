@@ -26,9 +26,10 @@ library(ggplot2)
 library(reshape2)
 library(minfi)
 
-dataDir <- ""
+#dataDir <- ""
 
-setwd(dataDir)
+#setwd(dataDir)
+dataDir<-getwd()
 
 v1gdsFile <- file.path(dataDir, "data/epicV1/2_gds/raw.gds")
 v2gdsFile <- file.path(dataDir, "data/epicV2/2_gds/raw.gds")
@@ -49,12 +50,12 @@ rm(normbeta)
 
 # load v2 raw betas
 v2gfile <- openfn.gds(v2gdsFile, readonly = FALSE)
-v2norm <- betas(v2gfile)[,]
-closefn.gds(v1gfile)
+v2betas <- betas(v2gfile)[,]
+closefn.gds(v2gfile)
 
 # load v2 norm betas
 v2gfileNorm <- openfn.gds(v2norm, readonly = FALSE)
-v2normbetas <- betas(v2gfileNorm)[,]
+v2normbetas <- index.gdsn(v2gfileNorm, "normbeta")[,]
 closefn.gds(v2gfileNorm)
 
 
@@ -90,14 +91,35 @@ s2 <- left_join(v2, samp2 %>% dplyr::select(Basename, newID))
 s1 <- s1[match(s2$newID, s1$newID),]
 
 
+# load pass/fail status and add to samplesheets
+
+passV1 <- read.csv("data/epicV1/2_gds/QCmetrics/passQCStatusStage3AllSamples.csv", stringsAsFactors = F)
+passV2 <- read.csv("data/epicV2/2_gds/QCmetrics/passQCStatusStage3AllSamples.csv", stringsAsFactors = F)
+
+s1 <- left_join(s1, passV1 %>% dplyr::select(Basename, passQCS3))
+s2 <- left_join(s2, passV2 %>% dplyr::select(Basename, passQCS3))
+
+# find samples failed in either
+fail <- rep(FALSE, nrow(s1))
+fail[which(s1$passQCS3 == F | s2$passQCS3 == F)] <- TRUE
+
+
 #----------------------------------------------------------------------#
 # Intensity values
 #----------------------------------------------------------------------#
 
+# all samples
+
 plotdf <- as.data.frame(cbind(s1$M.median, s1$U.median, s2$M.median, s2$U.median))
 colnames(plotdf) <- c("v1M.median", "v1U.median", "v2M.median", "v2U.median")
 plotdf <- mutate_all(plotdf, function(x) as.numeric(as.character(x)))
-plotdf <- cbind(s1$newID, plotdf)
+plotdf <- cbind(s1$newID, plotdf, fail)
+
+
+
+# passed
+  
+  # s1[passV1$Basename[!passV1$passQCS3],] - code to get passed samples
 
 #----------------------------------------------------------------------#
 # Intensity boxplot
@@ -120,6 +142,7 @@ t.test(plotdf$v1U.median, plotdf$v2U.median, paired=TRUE)
 # Intensity correlation plots
 #----------------------------------------------------------------------#
 
+# colour by cell type
 plotdf$cellType <- gsub(".*_", "", plotdf$`s1$newID`)
 
 # M intens
@@ -138,6 +161,22 @@ ggplot(plotdf, aes(x=v1U.median, y=v2U.median, colour=cellType))+
 cor.test(plotdf$v1U.median, plotdf$v2U.median)
 # p-value = 0.0009215
 # r = 0.4
+
+
+
+# colour by pass/fail
+
+# M intens
+ggplot(plotdf, aes(x=v1M.median, y=v2M.median, colour=fail))+
+  geom_point()
+
+# U intens
+ggplot(plotdf, aes(x=v1U.median, y=v2U.median, colour=fail))+
+  geom_point()
+
+
+cor.test(plotdf$v1M.median[plotdf$fail == FALSE],
+         plotdf$v2M.median[plotdf$fail == FALSE])
 
 
 #----------------------------------------------------------------------#
